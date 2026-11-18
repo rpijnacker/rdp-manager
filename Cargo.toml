@@ -1,0 +1,25 @@
+[package]
+name = "rdp-manager"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+argon2 = "0.6.0"
+chacha20poly1305 = "0.11.0"
+dirs = "7.0.0"
+eframe = { version = "0.37.0", default-features = false, features = ["glow", "default_fonts", "x11", "wayland"] }
+getrandom = "0.4.3"
+hex = "0.4.3"
+rand = "0.10.4"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+thiserror = "2.0.21"
+tokio = { version = "1.54.1", features = ["rt"] }
+turso = { version = "0.8.3", default-features = false }
+zeroize = "1.9.2"
+
+[target."cfg(windows)".dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_Security_Credentials", "Win32_Foundation"] }
+
+[target.'cfg(any(windows, target_os = "macos"))'.dependencies]
+keyring = { version = "3", features = ["windows-native", "apple-native"] }
