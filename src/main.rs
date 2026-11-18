@@ -1,7 +1,7 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 use eframe::egui;
-use rdp_manager::{db::Store, launch, model::Connection};
+use rdp_manager::{db::Store, import, launch, model::Connection};
 use std::collections::BTreeMap;
 
 fn db_path() -> std::path::PathBuf {
@@ -28,6 +28,9 @@ struct App {
     edit: Connection,
     search: String,
     status: String,
+    import_path: String,
+    import_passwords: bool,
+    show_import: bool,
 }
 
 impl App {
@@ -37,7 +40,7 @@ impl App {
             Some(Err(e)) => (None, e),
             None => (None, String::new()),
         };
-        let mut app = Self { store, password: String::new(), error, items: vec![], selected: None, edit: Connection::default(), search: String::new(), status: String::new() };
+        let mut app = Self { store, password: String::new(), error, items: vec![], selected: None, edit: Connection::default(), search: String::new(), status: String::new(), import_path: String::new(), import_passwords: true, show_import: false };
         app.reload();
         app
     }
@@ -91,6 +94,20 @@ impl App {
                     self.edit = Connection::default();
                 }
             });
+            if ui.button("📥 Importeren (RDM)…").clicked() {
+                self.show_import = !self.show_import;
+            }
+            if self.show_import {
+                ui.group(|ui| {
+                    ui.label("Pad naar RDM-export (.json / .rdm / .xml), of sleep het bestand hierheen:");
+                    ui.text_edit_singleline(&mut self.import_path);
+                    ui.checkbox(&mut self.import_passwords, "Wachtwoorden meenemen");
+                    if ui.button("Importeren").clicked() {
+                        let p = self.import_path.trim().trim_matches('"').to_string();
+                        self.import_file(&p);
+                    }
+                });
+            }
             ui.separator();
             let q = self.search.to_lowercase();
             let mut groups: BTreeMap<String, Vec<usize>> = BTreeMap::new();
@@ -185,6 +202,41 @@ impl App {
         });
     }
 
+    fn import_file(&mut self, path: &str) {
+        let Some(store) = &self.store else { return };
+        let text = match std::fs::read_to_string(path) {
+            Ok(t) => t,
+            Err(e) => {
+                self.status = format!("Lezen mislukt: {e}");
+                return;
+            }
+        };
+        match import::parse_rdm(&text, self.import_passwords) {
+            Ok(list) => {
+                let (mut added, mut skipped) = (0, 0);
+                for mut c in list {
+                    if import::is_duplicate(&self.items, &c) {
+                        skipped += 1;
+                        continue;
+                    }
+                    match store.save(&mut c) {
+                        Ok(()) => {
+                            added += 1;
+                            self.items.push(c);
+                        }
+                        Err(e) => {
+                            self.status = e.to_string();
+                            return;
+                        }
+                    }
+                }
+                self.status = format!("{added} geïmporteerd, {skipped} al aanwezig. Verwijder het exportbestand nu: het kan wachtwoorden bevatten.");
+                self.reload();
+            }
+            Err(e) => self.status = e.to_string(),
+        }
+    }
+
     fn save(&mut self) {
         if self.edit.name.trim().is_empty() {
             self.edit.name = self.edit.host.clone();
@@ -224,6 +276,13 @@ impl App {
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         if self.store.is_some() {
+            let dropped: Vec<_> = ui.input(|i| i.raw.dropped_files.clone());
+            if let Some(p) = dropped.first().map(|f| f.path().to_path_buf()) {
+                self.show_import = true;
+                self.import_path = p.to_string_lossy().to_string();
+                let p = self.import_path.clone();
+                self.import_file(&p);
+            }
             self.main_ui(ui);
         } else {
             self.unlock_ui(ui);
